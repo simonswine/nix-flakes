@@ -1,41 +1,64 @@
 {
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05";
     flake-utils.url = "github:numtide/flake-utils";
-    crane.url = "github:ipetkov/crane";
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
-  nixConfig = {
-    extra-substituters = [ "https://crane.cachix.org" ];
-    extra-trusted-public-keys = [ "crane.cachix.org-1:8Scfpmn9w+hGdXH/Q9tTLiYAE/2dnJYRJP7kl80GuRk=" ];
-  };
-  outputs = { nixpkgs, crane, flake-utils, rust-overlay, ... }:
-    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (system:
+  outputs = { nixpkgs, flake-utils, ... }:
+    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ] (system:
       let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [ (import rust-overlay) ];
         };
 
-        craneLib = (crane.mkLib pkgs).overrideToolchain (p: p.rust-bin.stable.latest.default.override {
-          targets = [ "aarch64-unknown-linux-musl" ];
-        });
+        # Create wrapper for x86_64-linux-gnu-gcc (without -unknown-)
+        # Use runCommand to avoid stdenv's build infrastructure
+        x86_64GccWrapper = pkgs.runCommand "x86_64-linux-gnu-gcc-wrapper" { } ''
+          mkdir -p $out/bin
+          set -x
+          for tool in ${pkgs.pkgsCross.gnu64.stdenv.cc}/bin/x86_64-unknown-linux-gnu-*; do
+            if [ -f "$tool" ]; then
+              basename=$(basename $tool)
+              newname=$(echo $basename | sed 's/x86_64-unknown-linux-gnu-/x86_64-linux-gnu-/')
+              ln -s $tool $out/bin/$newname
+            fi
+          done
+          exit 1
+        '';
+
+        # Create wrapper for aarch64-linux-gnu-gcc (without -unknown-)
+        # Use runCommand to avoid stdenv's build infrastructure
+        aarch64GccWrapper = pkgs.runCommand "aarch64-linux-gnu-gcc-wrapper" { } ''
+          mkdir -p $out/bin
+          for tool in ${pkgs.pkgsCross.aarch64-multiplatform.stdenv.cc}/bin/aarch64-unknown-linux-gnu-*; do
+            if [ -f "$tool" ]; then
+              basename=$(basename $tool)
+              newname=$(echo $basename | sed 's/aarch64-unknown-linux-gnu-/aarch64-linux-gnu-/')
+              ln -s $tool $out/bin/$newname
+            fi
+          done
+        '';
+
+        llvmToolsWrapper17 = pkgs.runCommand "suffix-17-wrapper" { } ''
+          mkdir -p $out/bin
+
+          ln -s "${pkgs.llvmPackages_17.bintools}/bin/llc" $out/bin/llc-17
+          ln -s "${pkgs.llvmPackages_17.bintools}/bin/llvm-link" $out/bin/llvm-link-17
+        '';
       in
       {
-        devShells.default = craneLib.devShell
+        devShells.default = pkgs.mkShell
           {
-            shellHook = ''
-              export TODOCARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-unknown-linux-musl-gcc
-              export CC_aarch64_unknown_linux_musl=aarch64-unknown-linux-musl-gcc
-        '';
             packages = with pkgs; [
               protobuf
               cmake
-              pkgsCross.aarch64-multiplatform-musl.stdenv.cc
-	      go
+              go
+              llvmPackages_17.clang-unwrapped
+              llvmPackages_17.bintools
+              pkgs.pkgsCross.aarch64-multiplatform.stdenv.cc
+              pkgs.pkgsCross.gnu64.stdenv.cc
+              x86_64GccWrapper
+              aarch64GccWrapper
+              llvmToolsWrapper17
             ];
           };
       }

@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
   };
   outputs = { self, nixpkgs, flake-utils }:
@@ -11,7 +11,7 @@
             (
               self: super: {
                 yarn = super.yarn.override {
-                  nodejs = pkgs.nodejs_20;
+                  nodejs = pkgs.nodejs_22;
                 };
               }
             )
@@ -52,7 +52,7 @@
                 ];
 
                 buildInputs = [
-                  go_1_23
+                  go_1_24
                 ];
 
               }
@@ -67,7 +67,7 @@
                   glib.dev
                   harfbuzz.dev
                   freetype.dev
-                  python3Full
+                  python3
                 ];
               }
               {
